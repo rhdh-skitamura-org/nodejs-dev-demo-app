@@ -1,0 +1,19 @@
+site_name: nodejs-dev-demo
+site_description: 
+repo_url: https://github.com/rhdh-skitamura-org/nodejs-dev-demo-app
+edit_uri: edit/main/docs
+
+plugins:
+  - techdocs-core
+
+theme:
+  name: material
+  font:
+    text:
+      - "Arial"
+      - "Helvetica"
+      - "sans-serif"
+
+# Note for content editors, edit only the section below
+nav:
+  - nodejs-dev-demo Documentation: index.md

@@ -1,0 +1,60 @@
+schemaVersion: 2.2.0
+metadata:
+  name: nodejs-dev-demo
+  displayName: Node.js
+components:
+  - name: development-tooling
+    container:
+      image: quay.io/devfile/universal-developer-image:latest
+      endpoints:
+        - name: "app"
+          targetPort: 3000
+          exposure: public
+          protocol: http
+        - name: "debug"
+          targetPort: 9229
+          exposure: public
+          protocol: http
+      memoryLimit: 5Gi
+      cpuLimit: 2500m
+      volumeMounts:
+        - name: m2
+          path: /home/user/.m2
+  - name: m2
+    volume:
+      size: 1G
+commands:
+  - id: install-deps
+    exec:
+      component: tools
+      commandLine: npm ci
+      workingDir: /projects/nodejs-sample
+      group:
+        kind: build
+        isDefault: true
+
+  - id: build
+    exec:
+      component: tools
+      commandLine: npm run build
+      workingDir: /projects/nodejs-sample
+      group:
+        kind: build
+
+  - id: run
+    exec:
+      component: tools
+      commandLine: npm start
+      workingDir: /projects/nodejs-sample
+      group:
+        kind: run
+        isDefault: true
+
+  - id: debug
+    exec:
+      component: tools
+      commandLine: node --inspect=0.0.0.0:9229 dist/index.js
+      workingDir: /projects/nodejs-sample
+      group:
+        kind: debug
+        isDefault: true

@@ -1,0 +1,33 @@
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: nodejs-dev-demo-api
+  title: nodejs-dev-demo API
+  description: デモ用の簡易 API
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: user:default/skitamura7446
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: Sample API
+      version: 1.0.0
+      description: >
+        最小構成の OpenAPI 
+    paths:
+      /hello:
+        get:
+          summary: Hello endpoint
+          operationId: getHello
+          responses:
+            '200':
+              description: Returns a greeting
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: Hello, world!

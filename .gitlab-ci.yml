@@ -1,0 +1,215 @@
+stages:
+  - init
+  - scan
+  - build
+  - git-clone
+  - kustomize
+  - git-push
+  - deploy
+
+upload_techdocs:
+  stage: init
+  rules:
+  - changes:
+    - 'docs/**/*'
+    - 'mkdocs.yaml'
+  variables:
+    TECHDOCS_S3_BUCKET_NAME: $TECHDOCS_S3_BUCKET_NAME
+    AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+    AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+    AWS_REGION: $AWS_REGION 
+    ENTITY_NAMESPACE: 'default'
+    ENTITY_KIND: 'Component'
+    ENTITY_NAME: $CI_PROJECT_NAME 
+    ENTITY_NAMESPACE: 'default'
+  image: quay.io/redhat-gpte/techdocs-cli
+  script:
+  - techdocs-cli generate --no-docker --verbose
+  - techdocs-cli publish --publisher-type awsS3 --storage-name $TECHDOCS_S3_BUCKET_NAME --entity $ENTITY_NAMESPACE/$ENTITY_KIND/${ENTITY_NAME::-4}
+  #- techdocs-cli publish --publisher-type awsS3 --storage-name $TECHDOCS_S3_BUCKET_NAME --awsEndpoint $AWS_ENDPOINT --awsS3ForcePathStyle --entity $ENTITY_NAMESPACE/$ENTITY_KIND/$ENTITY_NAME
+
+# 新しいパイプラインロジック
+#filter_catalog_info_changes:
+#  stage: filter
+#  rules:
+#    - if: '$CI_COMMIT_BRANCH == "develop"'
+#  script:
+#    - echo "Checking if changes are limited to 'catalog-info.yaml'..."
+#
+#    - |
+#      if git rev-parse --quiet --verify "${CI_COMMIT_BEFORE_SHA}^{commit}" >/dev/null 2>&1; then
+#        CHANGED_FILES=$(git diff --name-only "$CI_COMMIT_BEFORE_SHA" "$CI_COMMIT_SHA")
+#      else
+#        CHANGED_FILES=$(git ls-tree -r --name-only HEAD)
+#      fi
+#
+#      echo "Changed files: $CHANGED_FILES"
+#
+#      if [[ "$CHANGED_FILES" == "catalog-info.yaml" ]]; then
+#        echo "'catalog-info.yaml' is the only changed file. Skipping pipeline."
+#        exit 0
+#      fi
+#
+#    - echo "Changes detected outside 'catalog-info.yaml'. Continuing pipeline execution."
+
+#prepare_workspaces:
+#  stage: prepare
+#  rules:
+#    - if: '$CI_COMMIT_BRANCH == "develop"'
+#  script:
+#    - echo "Setting up workspaces..."
+#    - mkdir -p ./workspaces/shared
+#    - mkdir -p ./workspaces/manifest
+#    - mkdir -p ./workspaces/temp
+#    - mkdir -p ./workspaces/vul-cache
+#    - echo "Workspaces prepared."
+#
+#clone_repositories:
+#  stage: prepare
+#  rules:
+#    - if: '$CI_COMMIT_BRANCH == "develop"'
+#  script:
+#    - echo "Cloning application repository..."
+#    - git clone "$GIT_APP_URL" ./workspaces/shared
+#    - cd ./workspaces/shared && git checkout "$CI_COMMIT_SHA"
+#    - echo "Cloning manifests repository..."
+#    - git clone "$GIT_MANIFESTS_URL" ./workspaces/manifest
+#    - cd ./workspaces/manifest && git checkout "develop"
+#    - echo "Repositories cloned successfully."
+
+sonar_scan:
+  stage: scan
+  image: docker.io/sonarsource/sonar-scanner-cli:5.0
+  tags:
+    - openshift
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+  variables:
+    SONAR_HOST_URL: "http://sonarqube-sonarqube.sonarqube.svc:9000"
+    SONAR_TOKEN: "$SONAR_TOKEN"
+    SONAR_PROJECT_KEY: "nodejs-dev-demo"
+  script:
+    - sonar-scanner -Dsonar.projectKey="${SONAR_PROJECT_KEY}" -Dsonar.host.url="${SONAR_HOST_URL}" -Dsonar.login="${SONAR_TOKEN}"
+
+build_and_push:
+  stage: build
+  image: registry.redhat.io/rhel8/buildah:latest 
+  tags:
+    - openshift
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+  variables:
+    TLSVERIFY: "false"
+    IMAGE: quay-registry-quay-quay.apps.rosa.sb1237-rosa.b20c.p3.openshiftapps.com/skitamura-quay-org/nodejs-dev-demo-develop/nodejs-dev-demo:$CI_COMMIT_SHA
+    FORMAT: "docker"
+    CONTEXT: "."
+  script:
+    - echo "Building and pushing image..."
+    - buildah bud --storage-driver=vfs --format=${FORMAT} --tls-verify=false -t ${IMAGE} ${CONTEXT}
+    - |
+      set +e
+      for i in {1..3}; do
+        echo "Attempt $i: Pushing image..."
+        buildah push --storage-driver=vfs --digestfile /tmp/image-digest --tls-verify=false --authfile /opt/quay-credentials/auth.json "${IMAGE}" "docker://${IMAGE}"
+        if [ $? -eq 0 ]; then
+          echo "Push succeeded!"
+          exit 0
+        else
+          echo "Push failed. Retrying in 10 seconds..."
+          sleep 10
+        fi
+      done
+      echo "Push failed after 3 attempts."
+      exit 1
+
+git-clone-manifests:
+  stage: git-clone
+#  image: cgr.dev/chainguard/git:latest-root
+  image: registry.redhat.io/openshift-builds/openshift-builds-git-cloner-rhel9:1.2.0
+  tags:
+    - openshift
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+  variables:
+    #GITLAB_USER_NAME: $GITLAB_USER_NAME
+    #GITLAB_USER_EMAIL: $GITLAB_USER_EMAIL
+    MANIFEST_REPO_URL: https://github.com/rhdh-skitamura-org/nodejs-dev-demo-manifest
+  script:
+    - cp $GIT_CREDENTIALS .git-credentials
+    # マニフェストリポジトリをクローン
+    - git clone $MANIFEST_REPO_URL manifest-repo
+  artifacts:
+    paths:
+      - manifest-repo/
+
+kustomize-edit:
+  stage: kustomize
+  dependencies:
+    - git-clone-manifests
+  image: asia.gcr.io/k8s-artifacts-prod/kustomize/kustomize:v5.0.1
+  tags:
+    - openshift
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+  script:
+    - cd manifest-repo/kustomize/app/overlays/dev
+    - kustomize edit set image ___IMAGE_URL___@___IMAGE_DIGEST___=quay-registry-quay-quay.apps.rosa.sb1237-rosa.b20c.p3.openshiftapps.com/skitamura-quay-org/nodejs-dev-demo-develop/nodejs-dev-demo:$CI_COMMIT_SHA
+  artifacts:
+    paths:
+      - manifest-repo/
+ 
+push-manifests:
+  stage: git-push
+  dependencies:
+    - kustomize-edit
+  image: cgr.dev/chainguard/git:root-2.39@sha256:7759f87050dd8bacabe61354d75ccd7f864d6b6f8ec42697db7159eccd491139
+  tags:
+    - openshift
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+  variables:
+    MANIFEST_COMMIT_BRANCH: "develop"
+  script:
+    - export HOME=$(pwd)
+    - cp $GIT_CREDENTIALS .git-credentials
+    - git config --global credential.helper store
+    - git config --global user.name $CI_GITLAB_USER_NAME
+    - git config --global user.email $CI_GITLAB_USER_EMAIL
+    - git config --global --add safe.directory $HOME/manifest-repo
+    - cd manifest-repo
+    - git checkout ${MANIFEST_COMMIT_BRANCH}
+    - git diff
+    - git add -A ./kustomize/app/overlays/
+    - git commit -m "Change container image in manifests by ${GITLAB_USER_NAME} (<${GITLAB_USER_EMAIL}>)"
+    - git push origin ${MANIFEST_COMMIT_BRANCH} 
+
+#
+#    # 変更がある場合のみコミット・プッシュ
+#    - |
+#      if [ -n "$(git status --porcelain)" ]; then
+#        git config user.email "ci-bot@example.com"
+#        git config user.name "CI Bot"
+#        git add kustomization.yaml
+#        git commit -m "Update image to ${IMAGE_FULL}"
+#        git push origin main
+#      else
+#        echo "No changes to commit."
+#      fi
+#
+
+
+
+deploy_application:
+  stage: deploy
+  image: quay.io/argoproj/argocd:v2.11.6
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+  variables:
+    ARGOCD_SERVER: "openshift-gitops-server-openshift-gitops.apps.rosa.sb1237-rosa.b20c.p3.openshiftapps.com:443"
+    ARGOCD_USERNAME: $ARGOCD_USERNAME
+    ARGOCD_PASSWORD: $ARGOCD_PASSWORD
+  script:
+    - echo "Syncing application with ArgoCD..."
+    - argocd login "${ARGOCD_SERVER}" --username "${ARGOCD_USERNAME}" --password "${ARGOCD_PASSWORD}" --insecure
+    - argocd app sync nodejs-dev-demo-dev --revision develop
+    - argocd app wait nodejs-dev-demo-dev --health

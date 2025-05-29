@@ -1,0 +1,46 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: nodejs-dev-demo
+  links:
+    - url: https://openshift-gitops-server-openshift-gitops.apps.rosa.sb1237-rosa.b20c.p3.openshiftapps.com/applications/openshift-gitops/nodejs-dev-demo-dev
+      title: ArgoCD
+      icon: dashboard
+    - url: https://nodejs-dev-demo-nodejs-dev-demo.apps.rosa.sb1237-rosa.b20c.p3.openshiftapps.com
+      title: Application
+      icon: dashboard
+    - url: https://github.com/rhdh-skitamura-org/nodejs-dev-demo-app
+      title: App Repository
+      icon: dashboard
+    - url: https://github.com/rhdh-skitamura-org/nodejs-dev-demo-manifest
+      title: Manifest Repository
+    - url: https://devspaces.apps.rosa.sb1237-rosa.b20c.p3.openshiftapps.com/#https://github.com/rhdh-skitamura-org/nodejs-dev-demo-app
+      title: OpenShift Dev Spaces (VS Code)
+      icon: web
+    - url: https://console-openshift-console.apps.rosa.sb1237-rosa.b20c.p3.openshiftapps.com/k8s/ns/nodejs-dev-demo/tekton.dev~v1~Pipeline/nodejs-dev-demo-pipeline
+      title: Tekton Pipelines
+      icon: dashboard
+  annotations:
+    janus-idp.io/tekton: nodejs-dev-demo
+    janus-idp.io/tekton-enabled: "true"
+    github.com/project-slug: rhdh-skitamura-org/nodejs-dev-demo-app
+    quay.io/repository-slug: skitamura-quay-org/nodejs-dev-demo/nodejs-dev-demo
+    argocd/app-selector: argocd.argoproj.io/instance=nodejs-dev-demo-bootstrap
+    tektonci/build-namespace: nodejs-dev-demo
+    backstage.io/kubernetes-id: nodejs-dev-demo
+    backstage.io/kubernetes-namespace: nodejs-dev-demo
+    backstage.io/techdocs-ref: url:https://github.com/rhdh-skitamura-org/rhdh-nodejs-goldenpath
+    sonarqube.org/project-key: nodejs-dev-demo
+    jira/project-key: SMS
+    backstage.io/createdAt: 5/29/2025, 2:48:03 AM
+  labels: {}
+spec:
+  type: api
+  system: system:default/test-system-github
+  lifecycle: production
+  owner: user:default/skitamura7446
+  git: github
+  git_host_url: github.com
+  git_owner_name: rhdh-skitamura-org
+  providesApis:
+    - nodejs-dev-demo-api
