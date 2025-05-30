@@ -34,11 +34,6 @@ metadata:
     jira/project-key: SMS
     backstage.io/createdAt: 5/29/2025, 2:48:03 AM
   labels: {}
-relations:
-  - type: ownedBy
-    targetRef: user:default/skitamura7446
-  - type: providesApi
-    targetRef: api:default/nodejs-dev-demo-api
 spec:
   type: service
   system: system:default/test-system-github
