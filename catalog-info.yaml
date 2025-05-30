@@ -35,7 +35,7 @@ metadata:
     backstage.io/createdAt: 5/29/2025, 2:48:03 AM
   labels: {}
 spec:
-  type: api
+  type: service
   system: system:default/test-system-github
   lifecycle: production
   owner: user:default/skitamura7446
