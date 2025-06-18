@@ -8,6 +8,8 @@ RUN npm audit fix --force
 # Stage 2 - Build the source code
 FROM registry.access.redhat.com/ubi9/nodejs-20-minimal:latest AS builder
 
+RUN microdnf update -y && microdnf clean all
+
 COPY . .
 COPY --from=deps /opt/app-root/src/node_modules ./node_modules
 
