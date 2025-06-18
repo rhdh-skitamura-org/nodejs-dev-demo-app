@@ -1,40 +1,48 @@
-# Stage 1 - Install dependencies
+# syntax=docker/dockerfile:1
+
+########################
+# Stage 1 – deps
+########################
 FROM registry.access.redhat.com/ubi9/nodejs-20-minimal:latest AS deps
 
+WORKDIR /opt/app-root/src
 COPY package.json package-lock.json ./
-RUN npm ci
-RUN npm audit fix --force
 
-# Stage 2 - Build the source code
-FROM registry.access.redhat.com/ubi9/nodejs-20-minimal:latest AS builder
+# prod 依存だけインストール
+RUN npm ci --omit=dev
 
-RUN microdnf update -y && microdnf clean all
+########################
+# Stage 2 – builder
+########################
+FROM deps AS builder
 
+WORKDIR /opt/app-root/src
 COPY . .
-COPY --from=deps /opt/app-root/src/node_modules ./node_modules
+RUN npm run build          # dist/ を生成
 
-USER root
-RUN npm run build
-
-# Stage 3 - Production image, copy all the files and start NodeJS
+########################
+# Stage 3 – runner (final)
+########################
 FROM registry.access.redhat.com/ubi9/nodejs-20-minimal:latest AS runner
 
-COPY --from=deps --chown=1001:1001 /opt/app-root/src .
-COPY --from=builder --chown=1001:1001 /opt/app-root/src/dist ./dist
+WORKDIR /opt/app-root/src
 
-ENV NODE_ENV production
-
-# Update vulnerable package versions
-USER root
-RUN rm -rf /usr/lib/node_modules/nodemon 
-
-# Switch to nodejs user
+# --- 1) OS を最新化（root 権限） ---
+USER 0
+RUN microdnf update -y && microdnf clean all
 USER 1001
 
-# Install production dependencies
-RUN npm ci
+# --- 2) アプリと依存をコピー ---
+# node_modules は deps ステージで作ったものをそのまま
+COPY --from=deps    --chown=1001:1001 /opt/app-root/src/node_modules ./node_modules
+COPY --from=builder --chown=1001:1001 /opt/app-root/src/dist          ./dist
+COPY --from=builder --chown=1001:1001 /opt/app-root/src/package*.json ./
 
-ENV PORT 3000 
-EXPOSE 3000 
+# nodemon は devDependencies 扱いなので runner には含まれない
 
-CMD ["npm", "run", "start"]
+# --- 3) 実行設定 ---
+ENV NODE_ENV=production \
+    PORT=3000
+EXPOSE 3000
+
+CMD ["node", "dist/index.js"]
