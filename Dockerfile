@@ -1,46 +1,38 @@
-# syntax=docker/dockerfile:1
-
-########################
-# Stage 1 – deps (dev+prod ぜんぶ)
-########################
+# Stage 1 - Install dependencies
 FROM registry.access.redhat.com/ubi9/nodejs-20-minimal:latest AS deps
-WORKDIR /opt/app-root/src
 
-# パッケージ定義をコピーして依存を「全部」入れる
 COPY package.json package-lock.json ./
-RUN npm ci             # devDependencies も含む
+RUN npm ci
+RUN npm audit fix --force
 
-########################
-# Stage 2 – builder
-########################
-FROM deps AS builder
-WORKDIR /opt/app-root/src
+# Stage 2 - Build the source code
+FROM registry.access.redhat.com/ubi9/nodejs-20-minimal:latest AS builder
 
-# ソースをコピーしてビルド
 COPY . .
-RUN npm run build      # ← esbuild が使える
+COPY --from=deps /opt/app-root/src/node_modules ./node_modules
 
-########################
-# Stage 3 – runner (最終イメージ)
-########################
+USER root
+RUN npm run build
+
+# Stage 3 - Production image, copy all the files and start NodeJS
 FROM registry.access.redhat.com/ubi9/nodejs-20-minimal:latest AS runner
-WORKDIR /opt/app-root/src
 
-### 1. OS パッチ適用（root 必須）
-USER 0
-RUN microdnf update -y && microdnf clean all
+COPY --from=deps --chown=1001:1001 /opt/app-root/src .
+COPY --from=builder --chown=1001:1001 /opt/app-root/src/dist ./dist
+
+ENV NODE_ENV production
+
+# Update vulnerable package versions
+USER root
+RUN rm -rf /usr/lib/node_modules/nodemon 
+
+# Switch to nodejs user
 USER 1001
 
-### 2. アプリ成果物だけコピー
-COPY --from=builder --chown=1001:1001 /opt/app-root/src/dist          ./dist
-COPY --from=builder --chown=1001:1001 /opt/app-root/src/package*.json ./
+# Install production dependencies
+RUN npm ci
 
-### 3. 本番依存だけ再インストール
-RUN npm ci --omit=dev   # devDependencies を含めない
+ENV PORT 3000 
+EXPOSE 3000 
 
-### 4. 実行設定
-ENV NODE_ENV=production \
-    PORT=3000
-EXPOSE 3000
-
-CMD ["node", "dist/index.js"]
+CMD ["npm", "run", "start"]
