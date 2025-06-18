@@ -1,5 +1,5 @@
 # Stage 1 - Install dependencies
-FROM registry.access.redhat.com/ubi10/nodejs-22-minimal:latest AS deps
+FROM registry.access.redhat.com/ubi9/nodejs-20-minimal:latest AS deps
 
 COPY package.json package-lock.json ./
 RUN npm ci
